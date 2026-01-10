@@ -1,0 +1,7 @@
+model,metric,value
+velocity,RMSE,1.5428135002632557
+velocity,MAE,1.1189513303764338
+velocity,R_squared,0.6276527429111942
+command,RMSE,0.02394668680399972
+command,MAE,0.01868183975492872
+command,R_squared,0.233636323620582
