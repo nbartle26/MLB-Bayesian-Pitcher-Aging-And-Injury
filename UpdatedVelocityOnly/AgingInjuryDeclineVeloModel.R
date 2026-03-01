@@ -82,7 +82,7 @@ pitcher_data_merged <- pitcher_stats %>%
   mutate(
     tj_count = replace_na(tj_count, 0),
     had_tommy_john = as.numeric(tj_count > 0)
-    )
+  )
 cat("Pitchers with TJ history:", length(unique(pitcher_data_merged$player_id[pitcher_data_merged$had_tommy_john > 0])), "\n\n")
 
 
@@ -506,7 +506,7 @@ write_csv(future_predictions_df, paste0(output_dir, "future_predictions_velo_onl
 
 
 
-#CASE STUDY EXAMPLES
+#Case Study Examples
 case_study_names <- c("Hamels, Cole", "Wainwright, Adam", "Taillon, Jameson", "deGrom, Jacob", "Buehler, Walker")
 for(name in case_study_names) {
   case_info <- risk_assessments %>% filter(player_name == name)
@@ -547,7 +547,7 @@ for(i in seq_along(case_study_pitchers)) {
 }
 
 
-# VISUALIZATIONS
+# Visualizatio
 
 # Overall Risk Distribution
 p1 <- ggplot(risk_assessments, aes(x = overall_risk, fill = risk_category)) +
@@ -708,7 +708,7 @@ p_recovery_adjusted <- ggplot(recovery_extended, aes(x = offset, y = mean_residu
   scale_x_continuous(
     breaks = -1:3,
     labels = c("Pre-TJ", "TJ Year", "Year 1", "Year 2", "Year 3")
-    ) +
+  ) +
   scale_size_continuous(name = "Sample Size", range = c(3, 8)) +
   labs(title = "TJ Recovery Trajectory (Age-Adjusted)",
        subtitle = "Velocity relative to Bayesian model's age-predicted baseline | First TJ only",
@@ -823,7 +823,7 @@ create_projection_final <- function(pitcher_name_input, pitcher_data, future_pre
     theme(panel.background = element_rect(fill = "#FFF8DC", color = NA),
           plot.background = element_rect(fill = "white", color = NA)) +
     
-
+    
     geom_ribbon(data = future_data,    # Future ribbon
                 aes(x = age, ymin = lower, ymax = upper),
                 fill = "#27ae60", alpha = 0.18) +
@@ -832,7 +832,7 @@ create_projection_final <- function(pitcher_name_input, pitcher_data, future_pre
               color = "#2c3e50", size = 2) +
     geom_point(data = actual_data, aes(x = age, y = velocity),
                color = "#2c3e50", size = 3.5) +
-
+    
     geom_line(data = future_data, aes(x = age, y = velocity),    # Future predictions
               color = "#27ae60", size = 1.5, linetype = "dashed") +
     geom_point(data = future_data, aes(x = age, y = velocity),
@@ -1093,17 +1093,28 @@ aging_curve_clean <- modeling_data %>%
   ) %>%
   filter(n_obs >= 20)
 
-loess_fit <- loess(mean_velocity ~ age, data = aging_curve_clean, span = 0.3)
-aging_curve_clean$smoothed_velocity <- predict(loess_fit)
+coefs <- fixef(velocity_model)
+age_seq <- seq(min(aging_curve_clean$age), max(aging_curve_clean$age), by = 0.5)
+bayes_curve <- data.frame(
+  age = age_seq,
+  predicted = coefs["(Intercept)"] + 
+    coefs["age"] * age_seq + 
+    coefs["I(age^2)"] * age_seq^2
+)
+post <- as.matrix(velocity_model)[, c("(Intercept)", "age", "I(age^2)")]
+curve_draws <- sapply(age_seq, function(a) {
+  post[,1] + post[,2] * a + post[,3] * a^2
+})
+bayes_curve$lower <- apply(curve_draws, 2, quantile, 0.025)
+bayes_curve$upper <- apply(curve_draws, 2, quantile, 0.975)
 
-peak_age <- aging_curve_clean$age[which.max(aging_curve_clean$smoothed_velocity)]
-peak_velocity <- max(aging_curve_clean$smoothed_velocity)
+peak_age <- bayes_curve$age[which.max(bayes_curve$predicted)]
+peak_velocity <- max(bayes_curve$predicted)
 
 p_smooth <- ggplot(aging_curve_clean, aes(x = age)) +
-  geom_ribbon(aes(ymin = mean_velocity - 1.96*se, 
-                  ymax = mean_velocity + 1.96*se),
+  geom_ribbon(data = bayes_curve, aes(x = age, ymin = lower, ymax = upper),
               fill = "#3498db", alpha = 0.15) +
-  geom_line(aes(y = smoothed_velocity), 
+  geom_line(data = bayes_curve, aes(x = age, y = predicted), 
             color = "#2c3e50", size = 2.5) +
   geom_point(aes(y = mean_velocity, size = n_obs),
              color = "#3498db", alpha = 0.4) +
@@ -1182,13 +1193,11 @@ loess_fit <- loess(mean_velocity ~ age, data = aging_curve_clean, span = 0.3)
 aging_curve_clean$smoothed_velocity <- predict(loess_fit)
 
 p_aging_final <- ggplot(aging_curve_clean, aes(x = age)) +
-  # Confidence band
-  geom_ribbon(aes(ymin = mean_velocity - 1.96*se, 
-                  ymax = mean_velocity + 1.96*se),
+  geom_ribbon(data = bayes_curve, aes(x = age, ymin = lower, ymax = upper),
               fill = "#3498db", alpha = 0.15) +
   
   # smoothed line (no sample size bubbles)
-  geom_line(aes(y = smoothed_velocity), 
+  geom_line(data = bayes_curve, aes(x = age, y = predicted), 
             color = "#2c3e50", size = 2.5) +
   
   # Peak marker at peak_age
@@ -1221,12 +1230,12 @@ p_aging_final <- ggplot(aging_curve_clean, aes(x = age)) +
            label = "Decline", color = "#e74c3c", size = 4.5, fontface = "bold") +
   
   labs(title = "Population-Level Velocity Aging Curve",
-       subtitle = paste0("Smoothed trajectory with 95% confidence intervals (n = ", 
+       subtitle = paste0("Smoothed trajectory with 95% credible intervals (n = ", 
                          format(sum(aging_curve_clean$n_obs), big.mark = ","), 
                          " pitcher-seasons)"),
        x = "Age (years)",
        y = "Fastball Velocity (mph)") +
-  coord_cartesian(ylim = c(91.5, 95.5)) +
+  coord_cartesian(ylim = c(91, 95)) +
   theme_minimal(base_size = 12) +
   theme(
     plot.title = element_text(size = 16, face = "bold"),
